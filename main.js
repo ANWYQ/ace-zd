@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         ACE CP v9.2
+// @name         ACE KCL CP v9.3
 // @namespace    http://tampermonkey.net/
-// @version      9.2
+// @version      9.3
 // @description  ACE专用
 // @author       ANWY
 // @match        https://awards.komchadluek.net/KA8
@@ -37,13 +37,14 @@
                 title: 'ACE TEAM CN 投票助手',
                 reset: '重置计数器',
                 statusReady: '准备就绪',
-                statusReset: '计数器已重置',
+                statusReset: '计数器已重置 (时间: ',
                 statusSelecting: '正在选择投票选项...',
                 statusSelected: '已选择: ',
                 statusFilling: '已填写电话号码',
                 statusAgreement: '已勾选同意条款',
                 statusSubmitting: '正在提交投票...',
                 statusSuccess: '投票成功! (总计: ',
+                statusFailed: '投票失败! (失败: ',
                 statusNotFound: '未找到投票选项',
                 statusCoolDown: '冷却中，清除Cookies...',
                 statusClearing: '正在清除Cookies...',
@@ -53,19 +54,23 @@
                 statusTimeout: '等待超时，正在清除Cookies...',
                 language: '切换语言',
                 clearCookies: '清除Cookies',
-                disabledOption: '已禁用非目标选项'
+                disabledOption: '已禁用非目标选项',
+                lastReset: '上次重置: ',
+                successCount: '成功: ',
+                failCount: '失败: '
             },
             en: {
                 title: 'ACE TEAM CN Voting Helper',
                 reset: 'Reset Counter',
                 statusReady: 'Ready',
-                statusReset: 'Counter reset',
+                statusReset: 'Counter reset (Time: ',
                 statusSelecting: 'Selecting vote option...',
                 statusSelected: 'Selected: ',
                 statusFilling: 'Phone number filled',
                 statusAgreement: 'Agreement checked',
                 statusSubmitting: 'Submitting vote...',
                 statusSuccess: 'Vote successful! (Total: ',
+                statusFailed: 'Vote failed! (Failed: ',
                 statusNotFound: 'Vote option not found',
                 statusCoolDown: 'Cool down, deleting cookies...',
                 statusClearing: 'Clearing cookies...',
@@ -75,19 +80,23 @@
                 statusTimeout: 'Timeout reached, clearing cookies...',
                 language: 'Change Language',
                 clearCookies: 'Clear Cookies',
-                disabledOption: 'Disabled non-target options'
+                disabledOption: 'Disabled non-target options',
+                lastReset: 'Last reset: ',
+                successCount: 'Success: ',
+                failCount: 'Failed: '
             },
             th: {
                 title: 'เครื่องมือช่วยโหวต ACE TEAM CN',
                 reset: 'รีเซ็ตตัวนับ',
                 statusReady: 'พร้อมใช้งาน',
-                statusReset: 'รีเซ็ตตัวนับแล้ว',
+                statusReset: 'รีเซ็ตตัวนับแล้ว (เวลา: ',
                 statusSelecting: 'กำลังเลือกตัวเลือก...',
                 statusSelected: 'เลือกแล้ว: ',
                 statusFilling: 'กรอกหมายเลขโทรศัพท์แล้ว',
                 statusAgreement: 'ยอมรับเงื่อนไขแล้ว',
                 statusSubmitting: 'กำลังส่งการโหวต...',
                 statusSuccess: 'โหวตสำเร็จ! (รวม: ',
+                statusFailed: 'โหวตไม่สำเร็จ! (ล้มเหลว: ',
                 statusNotFound: 'ไม่พบตัวเลือกการโหวต',
                 statusCoolDown: 'กำลังรอเวลา ลบคุกกี้...',
                 statusClearing: 'กำลังลบคุกกี้...',
@@ -97,12 +106,17 @@
                 statusTimeout: 'เกินเวลาที่กำหนด, กำลังลบคุกกี้...',
                 language: 'เปลี่ยนภาษา',
                 clearCookies: 'ลบคุกกี้',
-                disabledOption: 'ปิดการใช้งานตัวเลือกอื่น'
+                disabledOption: 'ปิดการใช้งานตัวเลือกอื่น',
+                lastReset: 'รีเซ็ตล่าสุด: ',
+                successCount: 'สำเร็จ: ',
+                failCount: 'ล้มเหลว: '
             }
         }
     };
 
     let voteCount = localStorage.getItem('voteCount') ? parseInt(localStorage.getItem('voteCount')) : 0;
+    let failCount = localStorage.getItem('failCount') ? parseInt(localStorage.getItem('failCount')) : 0;
+    let lastResetTime = localStorage.getItem('lastResetTime') || '从未重置';
     let hasDeletedCookie = false;
     let hasVoted = false;
     let currentLanguage = localStorage.getItem('aceLanguage') || 'zh';
@@ -133,7 +147,7 @@
             border-radius: 16px;
             font-size: 15px;
             font-weight: 600;
-            min-width: 220px;
+            min-width: 280px;
         }
 
         .ace-counter-box:hover {
@@ -302,6 +316,21 @@
             z-index: 1;
             border-radius: 8px;
         }
+
+        .ace-stats {
+            font-size: 11px;
+            margin-top: 6px;
+            opacity: 0.7;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .ace-reset-time {
+            font-size: 10px;
+            margin-top: 4px;
+            opacity: 0.6;
+            text-align: right;
+        }
     `;
     document.head.appendChild(style);
 
@@ -312,6 +341,17 @@
 
     function getTranslation(key) {
         return CONFIG.languages[currentLanguage][key] || key;
+    }
+
+    function formatDateTime(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
     }
 
     function updateUI() {
@@ -329,6 +369,8 @@
         languageButtons.forEach(button => {
             button.classList.toggle('active', button.dataset.lang === currentLanguage);
         });
+
+        updateStats();
     }
 
     function createCounterBox() {
@@ -342,6 +384,11 @@
                 </h3>
                 <span id="voteCounter" class="ace-counter-value">${voteCount}</span>
             </div>
+            <div class="ace-stats" id="aceStats">
+                <span id="successCount">${getTranslation('successCount')}${voteCount}</span>
+                <span id="failCount">${getTranslation('failCount')}${failCount}</span>
+            </div>
+            <div class="ace-reset-time" id="resetTime">${getTranslation('lastReset')}${lastResetTime}</div>
             <div class="ace-progress">
                 <div class="ace-progress-bar"></div>
             </div>
@@ -360,9 +407,14 @@
         const resetButton = counterBox.querySelector('#resetCounter');
         resetButton.addEventListener('click', () => {
             voteCount = 0;
+            failCount = 0;
+            lastResetTime = formatDateTime(new Date());
             localStorage.setItem('voteCount', voteCount);
+            localStorage.setItem('failCount', failCount);
+            localStorage.setItem('lastResetTime', lastResetTime);
             updateCounter();
-            updateStatus(getTranslation('statusReset'), CONFIG.theme.info);
+            updateStats();
+            updateStatus(getTranslation('statusReset') + lastResetTime + ')', CONFIG.theme.info);
         });
 
         const languageButtons = counterBox.querySelectorAll('.ace-language-btn');
@@ -376,6 +428,16 @@
         });
 
         document.body.appendChild(counterBox);
+    }
+
+    function updateStats() {
+        const successElement = document.getElementById('successCount');
+        const failElement = document.getElementById('failCount');
+        const resetTimeElement = document.getElementById('resetTime');
+
+        if (successElement) successElement.textContent = getTranslation('successCount') + voteCount;
+        if (failElement) failElement.textContent = getTranslation('failCount') + failCount;
+        if (resetTimeElement) resetTimeElement.textContent = getTranslation('lastReset') + lastResetTime;
     }
 
     function createDeleteCookieButton() {
@@ -495,7 +557,6 @@
                 submitButton.click();
                 updateStatus(getTranslation('statusSubmitting'), CONFIG.theme.info);
                 console.log('Clicked vote button');
-
                 startWaitTimer();
             }, 1000);
         }
@@ -532,6 +593,10 @@
         updateStatus(getTranslation('statusTimeout'), CONFIG.theme.error);
         console.log('Timeout reached, clearing cookies');
 
+        failCount++;
+        localStorage.setItem('failCount', failCount);
+        updateStats();
+
         const deleteButton = document.querySelector('.ace-delete-button');
         if (deleteButton) {
             deleteButton.click();
@@ -561,6 +626,7 @@
                 voteCount++;
                 localStorage.setItem('voteCount', voteCount);
                 updateCounter();
+                updateStats();
                 updateStatus(getTranslation('statusSuccess') + `${voteCount})`, CONFIG.theme.success);
                 console.log('Vote successful, current vote count:', voteCount);
 
